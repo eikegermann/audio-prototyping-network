@@ -130,3 +130,6 @@ dmypy.json
 
 # model checkpoints
 checkpoints/
+
+# contents of data folder
+data/
