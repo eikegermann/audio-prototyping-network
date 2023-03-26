@@ -3,6 +3,7 @@ import librosa
 import librosa.display
 import itertools
 import numpy as np
+import torch
 from torch.utils.data import Dataset, DataLoader
 
 class EpisodicBatchSampler():
@@ -52,6 +53,12 @@ class EpisodicBatchSampler():
     def __len__(self):
         return self.num_batches
 
+class CustomDataLoader(DataLoader):
+    def __iter__(self):
+        for batch_indices, _ in super().__iter__():
+            batch_data = [self.dataset[i] for i in batch_indices]
+            print("Type of batch_data: ", type(batch_data))
+            yield batch_data
 
 
 class CustomDataset(Dataset):
@@ -66,18 +73,19 @@ class CustomDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        if isinstance(idx, list):  # Check if the input is a list of indices
-            # Process each index and return a list of tuples
-            results = [self._process_index(i) for i in idx]
-            data, labels = zip(*results)
-            return data, labels
-        else:
-            # Process a single index
-            return self._process_index(idx)
+            if isinstance(idx, list):  # Check if the input is a list of indices
+                # Process each index and return a list of tuples
+                results = [self._process_index(i) for i in idx]
+                data, labels = zip(*results)
+                return np.array(data), np.array(labels)  # Modified line
+            else:
+                # Process a single index
+                return self._process_index(idx)
 
     def _process_index(self, idx):
         audio = self.data[idx]
         spectrogram = self.preprocessing_function(audio, self.sr, self.n_fft, self.fixed_length)
+        print("Type of processed data via getitem: ", type(spectrogram))
         label = self.labels[idx]
         return spectrogram, label
 
@@ -102,18 +110,7 @@ class CustomDataset(Dataset):
         if len(audio) < int(sr * duration):
             audio = np.pad(audio, (0, int(sr * duration) - len(audio)), mode='constant')
         return audio
-    
-    def custom_collate_fn(self, batch):
-        data, labels = zip(*batch)
-
-        max_shape = np.array([item.shape for item in data]).max(axis=0)
-        padded_data = [np.pad(item, [(0, max_shape[i] - item.shape[i]) for i in range(item.ndim)]) for item in data]
-
-        data_tensor = torch.stack([torch.from_numpy(item) for item in padded_data], dim=0)
-        labels_tensor = torch.tensor(labels, dtype=torch.long)
-
-        return data_tensor, labels_tensor
-    
+        
     def get_support_query_dataloaders(self, min_classes_per_batch,
                                       batch_size_support,
                                       batch_size_query,
@@ -138,8 +135,8 @@ class CustomDataset(Dataset):
                                              samples_per_class_query,
                                              class_provider=class_provider)
 
-        support_dataloader = DataLoader(self, batch_sampler=support_sampler, collate_fn=self.custom_collate_fn)
-        query_dataloader = DataLoader(self, batch_sampler=query_sampler, collate_fn=self.custom_collate_fn)
-
+        support_dataloader = CustomDataLoader(self, batch_sampler=support_sampler)
+        query_dataloader = CustomDataLoader(self, batch_sampler=query_sampler)
 
         return support_dataloader, query_dataloader
+
