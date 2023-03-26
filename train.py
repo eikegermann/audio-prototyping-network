@@ -95,12 +95,17 @@ for model_run in range(conf.num_runs):
                                                                                                conf.batch_size_query,
                                                                                                conf.num_batches)
 
+        eval_support_loader, eval_query_loader = test_dataset.get_support_query_dataloaders(conf.min_classes_per_batch,
+                                                                                            conf.batch_size_support,
+                                                                                            conf.batch_size_query,
+                                                                                            conf.num_batches)
+
         while step_num < conf.num_batches:
             # Load one batch from support and query DataLoaders
             print("Establishing support set... ")
-            (support_set, support_labels), _ = next(iter(train_support_loader))
+            support_set, support_labels = next(iter(train_support_loader))
             print("Establishing query set... ")
-            (query_set, query_labels), _ = next(iter(train_query_loader))
+            query_set, query_labels = next(iter(train_query_loader))
 
             # Load one batch from support and query DataLoaders
             
@@ -146,7 +151,7 @@ for model_run in range(conf.num_runs):
                 class_counter[class_label.item()] += 1
 
             # Check if all classes have been represented the minimum number of times
-            all_classes_represented = all(count >= min_class_appearances for count in class_counter.values())
+            all_classes_represented = all(count >= conf.min_class_appearances for count in class_counter.values())
 
             #increase counter
             step_num += 1
@@ -160,17 +165,17 @@ for model_run in range(conf.num_runs):
             all_true_labels.extend(query_labels_remap.cpu().numpy())
             all_predictions.extend(predictions.cpu().numpy())
 
-            if (episode + 1) % display_interval == 0:
-                avg_loss = total_loss / display_interval
-                avg_accuracy = total_accuracy / display_interval
-                f1 = f1_score(all_true_labels, all_predictions, average='weighted')
-                
-                print(f"Episode {episode + 1}/{num_episodes}, Avg Loss: {avg_loss:.4f}, Avg Accuracy: {avg_accuracy:.4f}, F1 Score: {f1:.4f}")
+        if (episode + 1) % conf.display_interval == 0:
+            avg_loss = total_loss / conf.display_interval
+            avg_accuracy = total_accuracy / conf.display_interval
+            f1 = f1_score(all_true_labels, all_predictions, average='weighted')
+            
+            print(f"Episode {episode + 1}/{conf.num_episodes}, Avg Loss: {avg_loss:.4f}, Avg Accuracy: {avg_accuracy:.4f}, F1 Score: {f1:.4f}")
 
-                total_loss = 0
-                total_accuracy = 0
-                all_true_labels.clear()
-                all_predictions.clear()
+            total_loss = 0
+            total_accuracy = 0
+            all_true_labels.clear()
+            all_predictions.clear()
 
     #### Evaluation phase
     embedding_model.eval()  # Set the model to evaluation mode

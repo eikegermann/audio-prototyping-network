@@ -8,18 +8,22 @@ from torch.utils.data import Dataset, DataLoader
 
 class EpisodicBatchSampler():
     def __init__(
-        self, labels, num_batches, min_classes_per_batch, samples_per_class, num_random_classes=1
+        self, labels, num_batches, min_classes_per_batch, samples_per_class, num_random_classes=1, random_seed=None
     ):
         self.labels = labels
         self.num_batches = num_batches
         self.min_classes_per_batch = min_classes_per_batch
         self.samples_per_class = samples_per_class
         self.num_random_classes = num_random_classes
+        self.random_seed = random_seed
 
         self.num_classes = len(np.unique(labels))
         self.class_cycle = itertools.cycle(range(self.num_classes))
 
     def __iter__(self):
+        if self.random_seed is not None:
+            np.random.seed(self.random_seed)
+
         for _ in range(self.num_batches):
             # Sample the first classes using the round-robin approach
             sampled_classes = [next(self.class_cycle) for _ in range(self.min_classes_per_batch - self.num_random_classes)]
@@ -45,6 +49,7 @@ class EpisodicBatchSampler():
 
     def __len__(self):
         return self.num_batches
+
 
 
 
@@ -95,10 +100,13 @@ class CustomDataset(Dataset):
         samples_per_class_support = batch_size_support // min_classes_per_batch
         samples_per_class_query = batch_size_query // min_classes_per_batch
 
-        support_sampler = EpisodicBatchSampler(self.labels, num_batches_per_episode, min_classes_per_batch, samples_per_class_support)
-        query_sampler = EpisodicBatchSampler(self.labels, num_batches_per_episode, min_classes_per_batch, samples_per_class_query)
+        random_seed = 45  # Generate a random seed
+
+        support_sampler = EpisodicBatchSampler(self.labels, num_batches_per_episode, min_classes_per_batch, samples_per_class_support, random_seed=random_seed)
+        query_sampler = EpisodicBatchSampler(self.labels, num_batches_per_episode, min_classes_per_batch, samples_per_class_query, random_seed=random_seed)
 
         support_dataloader = DataLoader(self, batch_sampler=support_sampler)
         query_dataloader = DataLoader(self, batch_sampler=query_sampler)
 
         return support_dataloader, query_dataloader
+
