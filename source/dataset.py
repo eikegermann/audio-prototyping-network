@@ -3,12 +3,11 @@ import librosa
 import librosa.display
 import itertools
 import numpy as np
-import IPython.display as ipd
 from torch.utils.data import Dataset, DataLoader
 
 class EpisodicBatchSampler():
     def __init__(
-        self, labels, num_batches, min_classes_per_batch, samples_per_class, num_random_classes=1
+        self, labels, num_batches, min_classes_per_batch, samples_per_class, num_random_classes=1, class_provider=None
     ):
         self.labels = labels
         self.num_batches = num_batches
@@ -17,21 +16,28 @@ class EpisodicBatchSampler():
         self.num_random_classes = num_random_classes
 
         self.num_classes = len(np.unique(labels))
-        self.class_cycle = itertools.cycle(range(self.num_classes))
+        self.class_provider = class_provider
 
     def __iter__(self):
         for _ in range(self.num_batches):
-            # Sample the first classes using the round-robin approach
-            sampled_classes = [next(self.class_cycle) for _ in range(self.min_classes_per_batch - self.num_random_classes)]
+            if self.class_provider is None:
+                # Sample the first classes using the round-robin approach
+                class_cycle = itertools.cycle(range(self.num_classes))
+                sampled_classes = [next(class_cycle) for _ in range(self.min_classes_per_batch - self.num_random_classes)]
 
-            # Sample the additional random classes
-            remaining_classes = list(set(range(self.num_classes)) - set(sampled_classes))
-            random_classes = np.random.choice(remaining_classes, self.num_random_classes, replace=False)
-            sampled_classes.extend(random_classes)
+                # Sample the additional random classes
+                remaining_classes = list(set(range(self.num_classes)) - set(sampled_classes))
+                random_classes = np.random.choice(remaining_classes, self.num_random_classes, replace=False)
+                sampled_classes.extend(random_classes)
 
-            # Ensure sampled_classes contains unique elements
-            while len(set(sampled_classes)) != self.min_classes_per_batch:
-                sampled_classes[-1] = next(self.class_cycle)
+                # Ensure sampled_classes contains unique elements
+                while len(set(sampled_classes)) != self.min_classes_per_batch:
+                    sampled_classes[-1] = next(class_cycle)
+            else:
+                try:
+                    sampled_classes = next(self.class_provider)
+                except StopIteration:
+                    raise StopIteration("The class_provider iterator is exhausted")
 
             batch_indices = []
 
@@ -41,7 +47,7 @@ class EpisodicBatchSampler():
                 batch_indices.extend(class_indices[: self.samples_per_class])
 
             np.random.shuffle(batch_indices)
-            yield batch_indices
+            yield batch_indices, sampled_classes
 
     def __len__(self):
         return self.num_batches
@@ -60,6 +66,16 @@ class CustomDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
+        if isinstance(idx, list):  # Check if the input is a list of indices
+            # Process each index and return a list of tuples
+            results = [self._process_index(i) for i in idx]
+            data, labels = zip(*results)
+            return data, labels
+        else:
+            # Process a single index
+            return self._process_index(idx)
+
+    def _process_index(self, idx):
         audio = self.data[idx]
         spectrogram = self.preprocessing_function(audio, self.sr, self.n_fft, self.fixed_length)
         label = self.labels[idx]
@@ -87,7 +103,21 @@ class CustomDataset(Dataset):
             audio = np.pad(audio, (0, int(sr * duration) - len(audio)), mode='constant')
         return audio
     
-    def get_support_query_dataloaders(self, min_classes_per_batch, batch_size_support, batch_size_query, num_batches_per_episode):
+    def custom_collate_fn(self, batch):
+        data, labels = zip(*batch)
+
+        max_shape = np.array([item.shape for item in data]).max(axis=0)
+        padded_data = [np.pad(item, [(0, max_shape[i] - item.shape[i]) for i in range(item.ndim)]) for item in data]
+
+        data_tensor = torch.stack([torch.from_numpy(item) for item in padded_data], dim=0)
+        labels_tensor = torch.tensor(labels, dtype=torch.long)
+
+        return data_tensor, labels_tensor
+    
+    def get_support_query_dataloaders(self, min_classes_per_batch,
+                                      batch_size_support,
+                                      batch_size_query,
+                                      num_batches_per_episode):
         num_classes = len(np.unique(self.labels))
         if min_classes_per_batch > num_classes:
             raise ValueError("min_classes_per_batch should be less than or equal to the number of unique classes in the dataset")
@@ -95,10 +125,21 @@ class CustomDataset(Dataset):
         samples_per_class_support = batch_size_support // min_classes_per_batch
         samples_per_class_query = batch_size_query // min_classes_per_batch
 
-        support_sampler = EpisodicBatchSampler(self.labels, num_batches_per_episode, min_classes_per_batch, samples_per_class_support)
-        query_sampler = EpisodicBatchSampler(self.labels, num_batches_per_episode, min_classes_per_batch, samples_per_class_query)
+        support_sampler = EpisodicBatchSampler(self.labels,
+                                               num_batches_per_episode,
+                                               min_classes_per_batch,
+                                               samples_per_class_support)
 
-        support_dataloader = DataLoader(self, batch_sampler=support_sampler)
-        query_dataloader = DataLoader(self, batch_sampler=query_sampler)
+        class_provider = (sampled_classes for _, sampled_classes in itertools.islice(support_sampler, 1, None))
+
+        query_sampler = EpisodicBatchSampler(self.labels,
+                                             num_batches_per_episode,
+                                             min_classes_per_batch,
+                                             samples_per_class_query,
+                                             class_provider=class_provider)
+
+        support_dataloader = DataLoader(self, batch_sampler=support_sampler, collate_fn=self.custom_collate_fn)
+        query_dataloader = DataLoader(self, batch_sampler=query_sampler, collate_fn=self.custom_collate_fn)
+
 
         return support_dataloader, query_dataloader

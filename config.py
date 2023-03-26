@@ -1,3 +1,8 @@
+import os
+import librosa
+from source.data_utils import (number_of_filterbands, create_custom_filterbank,
+                               generate_spectrogram)
+
 # Parameters
 num_runs = 1
 
@@ -36,6 +41,8 @@ n_mels = 128
 
 # Training data
 data_folder = 'data/firearm_samples/train/'
+num_data_folders = len([subfolder for subfolder in os.listdir(data_folder)
+                        if os.path.isdir(os.path.join(data_folder, subfolder))])
 
 preprocessing_function = generate_spectrogram
 

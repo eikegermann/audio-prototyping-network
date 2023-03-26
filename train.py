@@ -14,28 +14,27 @@ from torchsummary import summary
 from source.dataset import CustomDataset
 from source.architecture import AudioClassifier
 from source.data_utils import generate_spectrogram
-import config
+import config as conf
 
 
 # Run multiple training runs to find best checkpoint
 
 # Get number of classes
-num_data_folders = len([subfolder for subfolder in os.listdir(config.data_folder)
-                        if os.path.isdir(os.path.join(config.data_folder, subfolder))])
 
-train_dataset = CustomDataset(config.data_folder,
-                              config.preprocessing_function,
-                              config.sr,
-                              config.duration,
-                              config.n_fft,
-                              config.fixed_length)
 
-test_dataset = CustomDataset(config.eval_data_dir,
-                              config.preprocessing_function,
-                              config.sr,
-                              config.duration,
-                              config.n_fft,
-                              config.fixed_length)
+train_dataset = CustomDataset(conf.data_folder,
+                              conf.preprocessing_function,
+                              conf.sr,
+                              conf.duration,
+                              conf.n_fft,
+                              conf.fixed_length)
+
+test_dataset = CustomDataset(conf.eval_data_dir,
+                              conf.preprocessing_function,
+                              conf.sr,
+                              conf.duration,
+                              conf.n_fft,
+                              conf.fixed_length)
                              
 
 # Set variable to compare evaluation accuracies
@@ -43,21 +42,21 @@ best_accuracy = 0.0
 best_f1_score = 0.0
 
 # Create a directory to save the best checkpoint
-os.makedirs(config.checkpoint_dir, exist_ok=True)
+os.makedirs(conf.checkpoint_dir, exist_ok=True)
 
-for model_run in range(config.num_runs):
+for model_run in range(conf.num_runs):
     print(f"Model run: {model_run}")
     #### Training Phase
     # Instantiate the embedding model
-    embedding_model = AudioClassifier(n_bands=config.num_bands,
-                                      n_frames=config.fixed_length,
-                                      n_features=config.n_features)
+    embedding_model = AudioClassifier(n_bands=conf.num_bands,
+                                      n_frames=conf.fixed_length,
+                                      n_features=conf.n_features)
 
     # Set up the loss function and optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(embedding_model.parameters(),
-                          lr=config.learning_rate,
-                          weight_decay=config.weight_decay)
+                          lr=conf.learning_rate,
+                          weight_decay=conf.weight_decay)
     
     # # Create the CosineAnnealingLR scheduler
     # T_max = 45  # You can choose an appropriate value for T_max
@@ -75,29 +74,34 @@ for model_run in range(config.num_runs):
     all_true_labels = []
     all_predictions = []
 
-    class_counter = {class_label: 0 for class_label in range(num_data_folders)}
-    all_classes_represented = all(count >= config.min_class_appearances for count in class_counter.values())
+    class_counter = {class_label: 0 for class_label in range(conf.num_data_folders)}
+    all_classes_represented = all(count >= conf.min_class_appearances for count in class_counter.values())
     step_num = 0
 
     # Training loop
-    for episode in range(config.num_episodes):
+    for episode in range(conf.num_episodes):
 
-        train_support_loader, train_query_loader = train_dataset.get_support_query_dataloaders(config.min_classes_per_batch,
-                                                                                               config.batch_size_support,
-                                                                                               config.batch_size_query,
-                                                                                               config.num_batches)
+        train_support_loader, train_query_loader = train_dataset.get_support_query_dataloaders(conf.min_classes_per_batch,
+                                                                                               conf.batch_size_support,
+                                                                                               conf.batch_size_query,
+                                                                                               conf.num_batches)
 
-        while step_num < config.num_batches:
+        while step_num < conf.num_batches:
             # Load one batch from support and query DataLoaders
-            support_set, support_labels = next(iter(train_support_loader))
-            query_set, query_labels = next(iter(train_query_loader))
+            print("Establishing support set... ")
+            (support_set, support_labels), _ = next(iter(train_support_loader))
+            print("Establishing query set... ")
+            (query_set, query_labels), _ = next(iter(train_query_loader))
 
             # Load one batch from support and query DataLoaders
+            
             support_set, support_labels = support_set.to(device), support_labels.to(device)
+            
             query_set, query_labels = query_set.to(device), query_labels.to(device)
 
             batch_labels = torch.unique(support_labels)
-            print(batch_labels)
+            print("Support batch labels: ", batch_labels)
+            print("Query batch labels: ", torch.unique(query_labels))
 
             # Calculate embeddings for support and query sets
             support_embeddings = embedding_model(support_set)
@@ -169,10 +173,10 @@ for model_run in range(config.num_runs):
     all_eval_predictions = []
 
     # Evaluation loop
-    for episode in range(config.num_eval_episodes):
+    for episode in range(conf.num_eval_episodes):
         # Randomly select a subset of classes
         available_classes = torch.unique(eval_labels_tensor)
-        batch_labels = available_classes[torch.randperm(len(available_classes))[:config.num_batch_labels_eval]]
+        batch_labels = available_classes[torch.randperm(len(available_classes))[:conf.num_batch_labels_eval]]
         batch_labels = batch_labels.to(device)
 
         # Initialize support and query sets
@@ -185,7 +189,7 @@ for model_run in range(config.num_runs):
         for class_label in batch_labels:
             class_indices = [i for i, label in enumerate(eval_labels) if label == class_label]
             random.shuffle(class_indices)
-            n_support = int(config.support_ratio_eval * len(class_indices))
+            n_support = int(conf.support_ratio_eval * len(class_indices))
             support_indices = class_indices[:n_support]
             query_indices = class_indices[n_support:]
 
@@ -235,8 +239,8 @@ for model_run in range(config.num_runs):
         all_eval_predictions.extend(predictions.cpu().numpy())
 
     # Calculate evaluation metrics
-    eval_avg_loss = eval_total_loss / config.num_eval_episodes
-    eval_avg_accuracy = eval_total_accuracy / config.num_eval_episodes
+    eval_avg_loss = eval_total_loss / conf.num_eval_episodes
+    eval_avg_accuracy = eval_total_accuracy / conf.num_eval_episodes
     f1 = f1_score(all_eval_true_labels, all_eval_predictions, average='weighted')
 
     print(f"Evaluation Average Loss: {eval_avg_loss:.4f}, Average Accuracy: {eval_avg_accuracy:.4f}, F1 Score: {f1:.4f} \n")
@@ -246,6 +250,6 @@ for model_run in range(config.num_runs):
         best_f1_score = f1
         best_model_weights = copy.deepcopy(embedding_model.state_dict())
         print("Saving new best checkpoint... \n")
-        torch.save(best_model_weights, os.path.join(config.checkpoint_dir, 'best_checkpoint.pth'))
+        torch.save(best_model_weights, os.path.join(conf.checkpoint_dir, 'best_checkpoint.pth'))
 
 print(f"Evaluation complete. Saved checkpoint has F1 score of {best_f1_score:.2f}")
