@@ -16,21 +16,24 @@ class EpisodicBatchSampler():
         self.samples_per_class = samples_per_class
         self.num_random_classes = num_random_classes
         self.random_seed = random_seed
-
         self.num_classes = len(np.unique(labels))
         self.class_cycle = itertools.cycle(range(self.num_classes))
 
     def __iter__(self):
         if self.random_seed is not None:
             np.random.seed(self.random_seed)
+            self.random_seed += 7013
 
         for _ in range(self.num_batches):
             # Sample the first classes using the round-robin approach
             sampled_classes = [next(self.class_cycle) for _ in range(self.min_classes_per_batch - self.num_random_classes)]
+            # print("Sampled_classes ", sampled_classes)
 
             # Sample the additional random classes
             remaining_classes = list(set(range(self.num_classes)) - set(sampled_classes))
+            # print("Remaining classes ", remaining_classes)
             random_classes = np.random.choice(remaining_classes, self.num_random_classes, replace=False)
+            # print("Random classes ", random_classes)
             sampled_classes.extend(random_classes)
 
             # Ensure sampled_classes contains unique elements

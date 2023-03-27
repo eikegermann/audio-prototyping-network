@@ -72,8 +72,6 @@ for model_run in range(conf.num_runs):
     # eta_min = 5e-7  # You can choose an appropriate value for eta_min
     # scheduler = CosineAnnealingLR(optimizer, T_max=T_max, eta_min=eta_min)
 
-
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     embedding_model = embedding_model.to(device)
 
@@ -83,28 +81,25 @@ for model_run in range(conf.num_runs):
     all_true_labels = []
     all_predictions = []
 
-    class_counter = {class_label: 0 for class_label in range(conf.num_data_folders)}
-    all_classes_represented = all(count >= conf.min_class_appearances for count in class_counter.values())
-    step_num = 0
+
 
     # Training loop
     for episode in range(conf.num_episodes):
+        class_counter = {class_label: 0 for class_label in range(conf.num_data_folders)}
+        all_classes_represented = all(count >= conf.min_class_appearances for count in class_counter.values())
+        step_num = 0
 
         train_support_loader, train_query_loader = train_dataset.get_support_query_dataloaders(conf.min_classes_per_batch,
                                                                                                conf.batch_size_support,
                                                                                                conf.batch_size_query,
-                                                                                               conf.num_batches)
+                                                                                               conf.num_batches_train)
 
-        eval_support_loader, eval_query_loader = test_dataset.get_support_query_dataloaders(conf.min_classes_per_batch,
-                                                                                            conf.batch_size_support,
-                                                                                            conf.batch_size_query,
-                                                                                            conf.num_batches)
-
-        while step_num < conf.num_batches:
+        while ((step_num < conf.num_batches_train) and not(all_classes_represented)):
+            # print(all_classes_represented)
             # Load one batch from support and query DataLoaders
-            print("Establishing support set... ")
+            # print("Establishing support set... ")
             support_set, support_labels = next(iter(train_support_loader))
-            print("Establishing query set... ")
+            # print("Establishing query set... ")
             query_set, query_labels = next(iter(train_query_loader))
 
             # Load one batch from support and query DataLoaders
@@ -114,8 +109,8 @@ for model_run in range(conf.num_runs):
             query_set, query_labels = query_set.to(device), query_labels.to(device)
 
             batch_labels = torch.unique(support_labels)
-            print("Support batch labels: ", batch_labels)
-            print("Query batch labels: ", torch.unique(query_labels))
+            # print("Support batch labels: ", batch_labels)
+            # print("Query batch labels: ", torch.unique(query_labels))
 
             # Calculate embeddings for support and query sets
             support_embeddings = embedding_model(support_set)
@@ -135,7 +130,6 @@ for model_run in range(conf.num_runs):
 
             # Predict the class label based on the smallest distance
             class_probabilities = torch.softmax(-distances, dim=1)
-            print(query_labels)
             # Remap query labels to the new range
             query_labels_remap = torch.tensor([torch.where(batch_labels == label)[0].item() for label in query_labels], device=device)
 
@@ -165,6 +159,7 @@ for model_run in range(conf.num_runs):
             all_true_labels.extend(query_labels_remap.cpu().numpy())
             all_predictions.extend(predictions.cpu().numpy())
 
+        # print(class_counter)
         if (episode + 1) % conf.display_interval == 0:
             avg_loss = total_loss / conf.display_interval
             avg_accuracy = total_accuracy / conf.display_interval
@@ -178,6 +173,7 @@ for model_run in range(conf.num_runs):
             all_predictions.clear()
 
     #### Evaluation phase
+    print("Beginning evaluation... ")
     embedding_model.eval()  # Set the model to evaluation mode
 
     # Set up evaluation accuracy display
@@ -188,69 +184,64 @@ for model_run in range(conf.num_runs):
 
     # Evaluation loop
     for episode in range(conf.num_eval_episodes):
-        # Randomly select a subset of classes
-        available_classes = torch.unique(eval_labels_tensor)
-        batch_labels = available_classes[torch.randperm(len(available_classes))[:conf.num_batch_labels_eval]]
-        batch_labels = batch_labels.to(device)
+        # print(f"Running episode {episode} of {conf.num_eval_episodes}")
+        eval_support_loader, eval_query_loader = test_dataset.get_support_query_dataloaders(conf.min_classes_per_batch,
+                                                                                            conf.batch_size_support,
+                                                                                            conf.batch_size_query,
+                                                                                            conf.num_batches_eval)
+        step_num = 0
+        while step_num < conf.num_batches_eval:
+            # print(f"Running eval step {step_num} of {conf.num_batches_eval}")
+            # Load one batch from support and query DataLoaders
+            # print("Establishing support set... ")
+            eval_support_set, eval_support_labels = next(iter(eval_support_loader))
+            # print("Establishing query set... ")
+            eval_query_set, eval_query_labels = next(iter(eval_query_loader))
 
-        # Initialize support and query sets
-        eval_support_set = torch.empty((0, 1, num_bands, fixed_length))
-        eval_support_labels = torch.empty(0, dtype=torch.long)
-        eval_query_set = torch.empty((0, 1, num_bands, fixed_length))
-        eval_query_labels = torch.empty(0, dtype=torch.long)
+            # Load one batch from support and query DataLoaders
+            
+            eval_support_set, eval_support_labels = eval_support_set.to(device), eval_support_labels.to(device)
+            
+            eval_query_set, eval_query_labels = eval_query_set.to(device), eval_query_labels.to(device)
 
-        # Split the data into support and query sets
-        for class_label in batch_labels:
-            class_indices = [i for i, label in enumerate(eval_labels) if label == class_label]
-            random.shuffle(class_indices)
-            n_support = int(conf.support_ratio_eval * len(class_indices))
-            support_indices = class_indices[:n_support]
-            query_indices = class_indices[n_support:]
+            batch_labels = torch.unique(eval_support_labels)
+            # print("Support batch labels: ", batch_labels)
+            # print("Query batch labels: ", torch.unique(eval_query_labels))
 
-            eval_support_set = torch.cat((eval_support_set, eval_data[support_indices]), dim=0)
-            eval_support_labels = torch.cat((eval_support_labels, eval_labels_tensor[support_indices]), dim=0)
-            eval_query_set = torch.cat((eval_query_set, eval_data[query_indices]), dim=0)
-            eval_query_labels = torch.cat((eval_query_labels, eval_labels_tensor[query_indices]), dim=0)
+            # Calculate embeddings for support and query sets
+            eval_support_embeddings = embedding_model(eval_support_set)
+            eval_query_embeddings = embedding_model(eval_query_set)
 
-        # Move data to available device
-        eval_support_set = eval_support_set.to(device)
-        eval_support_labels = eval_support_labels.to(device)
-        eval_query_set = eval_query_set.to(device)
-        eval_query_labels = eval_query_labels.to(device)
+            # Calculate class prototypes (mean embeddings)
+            class_prototypes = []
+            for class_label in batch_labels:
+                class_indices = (eval_support_labels == class_label).nonzero(as_tuple=True)[0]
+                class_embeddings = eval_support_embeddings[class_indices]
+                class_prototype = class_embeddings.mean(dim=0)
+                class_prototypes.append(class_prototype)
+            class_prototypes = torch.stack(class_prototypes)
 
-        # Calculate embeddings for support and query sets
-        eval_support_embeddings = embedding_model(eval_support_set)
-        eval_query_embeddings = embedding_model(eval_query_set)
+            # Calculate the distance between query samples and class prototypes
+            distances = torch.cdist(eval_query_embeddings, class_prototypes)
 
-        # Calculate class prototypes (mean embeddings)
-        class_prototypes = []
-        for class_label in batch_labels:
-            class_indices = (eval_support_labels == class_label).nonzero(as_tuple=True)[0]
-            class_embeddings = eval_support_embeddings[class_indices]
-            class_prototype = class_embeddings.mean(dim=0)
-            class_prototypes.append(class_prototype)
-        class_prototypes = torch.stack(class_prototypes)
+            # Predict the class label based on the smallest distance
+            class_probabilities = torch.softmax(-distances, dim=1)
 
-        # Calculate the distance between query samples and class prototypes
-        distances = torch.cdist(eval_query_embeddings, class_prototypes)
+            # Remap query labels to the new range
+            eval_query_labels_remap = torch.tensor([torch.where(batch_labels == label)[0].item() for label in eval_query_labels], device=device)
 
-        # Predict the class label based on the smallest distance
-        class_probabilities = torch.softmax(-distances, dim=1)
+            # Calculate the loss for the current episode
+            loss = criterion(class_probabilities, eval_query_labels_remap)
 
-        # Remap query labels to the new range
-        eval_query_labels_remap = torch.tensor([torch.where(batch_labels == label)[0].item() for label in eval_query_labels], device=device)
+            # Calculate accuracy for the current episode
+            predictions = torch.argmax(class_probabilities, dim=1)
+            accuracy = (predictions == eval_query_labels_remap).float().mean().item()
+            eval_total_loss += loss.item()
+            eval_total_accuracy += accuracy
 
-        # Calculate the loss for the current episode
-        loss = criterion(class_probabilities, eval_query_labels_remap)
-
-        # Calculate accuracy for the current episode
-        predictions = torch.argmax(class_probabilities, dim=1)
-        accuracy = (predictions == eval_query_labels_remap).float().mean().item()
-        eval_total_loss += loss.item()
-        eval_total_accuracy += accuracy
-
-        all_eval_true_labels.extend(eval_query_labels_remap.cpu().numpy())
-        all_eval_predictions.extend(predictions.cpu().numpy())
+            all_eval_true_labels.extend(eval_query_labels_remap.cpu().numpy())
+            all_eval_predictions.extend(predictions.cpu().numpy())
+            step_num += 1
 
     # Calculate evaluation metrics
     eval_avg_loss = eval_total_loss / conf.num_eval_episodes

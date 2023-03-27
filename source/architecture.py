@@ -73,12 +73,12 @@ class AudioClassifier(nn.Module):
 
         with torch.no_grad():
             sample_input = torch.randn(1, 1, n_bands, n_frames)
-            print("Training Sample Input Shape:", sample_input.shape)
+            # print("Training Sample Input Shape:", sample_input.shape)
             x = self.pool(F.relu(self.bn1(self.conv1(sample_input))))
             x = self.pool(F.relu(self.bn1a(self.conv1a(x))))
             x = self.pool(F.relu(self.bn2(self.conv2(x))))
             x = self.pool(F.relu(self.bn3(self.conv3(x))))
-            print("Training X Shape:", x.shape)
+            # print("Training X Shape:", x.shape)
             flattened_size = x.view(x.size(0), -1).shape[1]
-            print(flattened_size)
+            # print(flattened_size)
             self.fc1 = nn.Linear(flattened_size, 5120)

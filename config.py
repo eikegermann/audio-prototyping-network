@@ -4,7 +4,7 @@ from source.data_utils import (number_of_filterbands, create_custom_filterbank,
                                generate_spectrogram)
 
 # Parameters
-num_runs = 1
+num_runs = 10
 
 sr = 44100
 duration = 0.8
@@ -49,11 +49,11 @@ preprocessing_function = generate_spectrogram
 num_bands = num_freqs
 fixed_length = n_frames
 fraction_for_train = 0.7
-num_episodes = 2
+num_episodes = 100
 num_batch_labels_train = int(num_data_folders * fraction_for_train)
-display_interval = 1
+display_interval = 10
 n_features = 50
-learning_rate = 1e-3
+learning_rate = 3e-3
 weight_decay = 0.0002
 support_ratio_train = 0.6
 
@@ -63,15 +63,16 @@ support_ratio_train = 0.6
 eval_data_dir = 'data/firearm_samples/test/'
 
 fraction_for_eval = 1
-num_eval_episodes = 100
+num_eval_episodes = 50
 num_batch_labels_eval = int(num_data_folders * fraction_for_eval)
 support_ratio_eval = 0.6
 
 min_classes_per_batch = 2
 batch_size_support = 12
 batch_size_query = 12
-min_class_appearances = 10  # Set a minimum number of appearances for each class
-num_batches = 30
+min_class_appearances = 20  # Set a minimum number of appearances for each class
+num_batches_train = 100
+num_batches_eval = 50
 
 # Checkpoint directory
 checkpoint_dir = "checkpoints"
