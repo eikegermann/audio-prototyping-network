@@ -16,45 +16,22 @@ import IPython.display as ipd
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, fbeta_score, roc_auc_score, roc_curve
+
 from IPython.display import Audio, display
 from torchsummary import summary
+
+from skopt import gp_minimize
+from skopt.space import Real, Integer
+from skopt.utils import use_named_args
 
 from source.dataset import CustomDataset
 from source.architecture import AudioClassifier
 from source.data_utils import generate_spectrogram
 import config as conf
 
-
-# Run multiple training runs to find best checkpoint
-
-# Get number of classes
-
-
-train_dataset = CustomDataset(conf.data_folder,
-                              conf.preprocessing_function,
-                              conf.sr,
-                              conf.duration,
-                              conf.n_fft,
-                              conf.fixed_length)
-
-test_dataset = CustomDataset(conf.eval_data_dir,
-                              conf.preprocessing_function,
-                              conf.sr,
-                              conf.duration,
-                              conf.n_fft,
-                              conf.fixed_length)
-                             
-
-# Set variable to compare evaluation accuracies
-best_accuracy = 0.0
-best_f1_score = 0.0
-
-# Create a directory to save the best checkpoint
-os.makedirs(conf.checkpoint_dir, exist_ok=True)
-
-for model_run in range(conf.num_runs):
-    print(f"Model run: {model_run}")
+def train_pt_classifier(conf, train_dataset, test_dataset):
+    print(f"Beginning training...")
     #### Training Phase
     # Instantiate the embedding model
     embedding_model = AudioClassifier(n_bands=conf.num_bands,
@@ -84,7 +61,7 @@ for model_run in range(conf.num_runs):
 
 
     # Training loop
-    for episode in range(conf.num_episodes):
+    for episode in range(conf.num_train_episodes):
         class_counter = {class_label: 0 for class_label in range(conf.num_data_folders)}
         all_classes_represented = all(count >= conf.min_class_appearances for count in class_counter.values())
         step_num = 0
@@ -151,8 +128,10 @@ for model_run in range(conf.num_runs):
             step_num += 1
 
             # Calculate accuracy and loss for the current episode
+            # auc_roc = roc_auc_score(query_labels_remap, class_probabilities)
             predictions = torch.argmax(class_probabilities, dim=1)
             accuracy = (predictions == query_labels_remap).float().mean().item()
+            # fbeta = fbeta_score(query_labels_remap, predictions, beta=0.9)
             total_loss += loss.item()
             total_accuracy += accuracy
 
@@ -161,11 +140,12 @@ for model_run in range(conf.num_runs):
 
         # print(class_counter)
         if (episode + 1) % conf.display_interval == 0:
-            avg_loss = total_loss / conf.display_interval
-            avg_accuracy = total_accuracy / conf.display_interval
+            avg_loss = (total_loss / step_num) / conf.display_interval
+            avg_accuracy = (total_accuracy / step_num) / conf.display_interval
             f1 = f1_score(all_true_labels, all_predictions, average='weighted')
+            f_beta = fbeta_score(all_true_labels, all_predictions, beta=0.9)
             
-            print(f"Episode {episode + 1}/{conf.num_episodes}, Avg Loss: {avg_loss:.4f}, Avg Accuracy: {avg_accuracy:.4f}, F1 Score: {f1:.4f}")
+            print(f"Episode {episode + 1}/{conf.num_train_episodes}, Avg Loss: {avg_loss:.4f}, Avg Accuracy: {avg_accuracy:.4f}, F1 Score: {f1:.4f}, F-beta: {f_beta:.4f}")
 
             total_loss = 0
             total_accuracy = 0
@@ -174,6 +154,9 @@ for model_run in range(conf.num_runs):
 
     #### Evaluation phase
     print("Beginning evaluation... ")
+    best_accuracy = 0.0
+    best_f1_score = 0.0
+    best_f_beta_score = 0.0
     embedding_model.eval()  # Set the model to evaluation mode
 
     # Set up evaluation accuracy display
@@ -247,14 +230,72 @@ for model_run in range(conf.num_runs):
     eval_avg_loss = eval_total_loss / conf.num_eval_episodes
     eval_avg_accuracy = eval_total_accuracy / conf.num_eval_episodes
     f1 = f1_score(all_eval_true_labels, all_eval_predictions, average='weighted')
+    f_beta = fbeta_score(all_eval_true_labels, all_eval_predictions, beta=0.9)
 
-    print(f"Evaluation Average Loss: {eval_avg_loss:.4f}, Average Accuracy: {eval_avg_accuracy:.4f}, F1 Score: {f1:.4f} \n")
+    print(f"Evaluation Average Loss: {eval_avg_loss:.4f}, Average Accuracy: {eval_avg_accuracy:.4f}, F1 Score: {f1:.4f}, , F-beta: {f_beta:.4f} \n")
 
     if f1 > best_f1_score:
         print(f"Previous best F1 score: {best_f1_score:.4f} - current F1 score: {f1:.4f}")
-        best_f1_score = f1
-        best_model_weights = copy.deepcopy(embedding_model.state_dict())
-        print("Saving new best checkpoint... \n")
-        torch.save(best_model_weights, os.path.join(conf.checkpoint_dir, 'best_checkpoint.pth'))
+    if f_beta > best_f_beta_score:
+        print(f"Previous best F-beta score: {best_f_beta_score:.4f} - current F_beta score: {f_beta:.4f}")
+    #     best_f1_score = f1
+    #     # best_model_weights = copy.deepcopy(embedding_model.state_dict())
+    #     # print("Saving new best checkpoint... \n")
+    #     # torch.save(best_model_weights, os.path.join(conf.checkpoint_dir, 'best_checkpoint.pth'))
 
-print(f"Evaluation complete. Saved checkpoint has F1 score of {best_f1_score:.2f}")
+    # print(f"Evaluation complete. Best F1 score achieved is {best_f1_score:.2f}")
+        
+    return -best_f_beta_score
+
+if __name__ =='__main__':
+
+    search_space = [
+        Real(1e-6, 1e-5, prior="log-uniform", name="learning_rate"),
+        Real(1e-6, 1e-4, prior="log-uniform", name="weight_decay"),
+        Integer(45, 60, name="n_features"),  # Assuming you have a maximum of 60 features
+    ]
+
+    @use_named_args(search_space)
+    def objective(**params):
+        # Update the conf object with the hyperparameters from the search space
+        conf.learning_rate = params["learning_rate"]
+        conf.weight_decay = params["weight_decay"]
+        conf.n_features = params["n_features"]
+
+        # Call your existing train_pt_classifier function
+        negative_best_f_beta_score = train_pt_classifier(conf, train_dataset, test_dataset)
+
+        # Return the negative best F1 score as we want to maximize it
+        return negative_best_f_beta_score
+
+
+    train_dataset = CustomDataset(conf.data_folder,
+                              conf.preprocessing_function,
+                              conf.sr,
+                              conf.duration,
+                              conf.n_fft,
+                              conf.fixed_length)
+
+    test_dataset = CustomDataset(conf.eval_data_dir,
+                              conf.preprocessing_function,
+                              conf.sr,
+                              conf.duration,
+                              conf.n_fft,
+                              conf.fixed_length)
+
+
+    # Create a directory to save the best checkpoint
+    os.makedirs(conf.checkpoint_dir, exist_ok=True)
+
+    # train_pt_classifier(conf, train_dataset, test_dataset)
+
+    result = gp_minimize(
+        func=objective,
+        dimensions=search_space,
+        n_calls=30,  # Number of iterations for the optimization
+        random_state=42,  # Ensure reproducibility
+        n_jobs=-1,  # Use all available CPU cores
+        )
+
+    print("Best score:", -result.fun)
+    print("Best parameters:", result.x)
