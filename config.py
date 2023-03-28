@@ -41,13 +41,13 @@ fixed_length = 128
 # Training data
 data_folder = 'data/firearm_samples/train/'
 fraction_for_train = 0.7
-num_train_episodes = 50
+num_train_episodes = 100
 support_ratio_train = 0.6
 
 # Test data
 eval_data_dir = 'data/firearm_samples/test/'
 fraction_for_eval = 1
-num_eval_episodes = 20
+num_eval_episodes = 50
 support_ratio_eval = 0.6
 
 num_runs = 10
@@ -59,14 +59,14 @@ preprocessing_function = generate_spectrogram
 num_bands = num_freqs
 fixed_length = n_frames
 display_interval = 10
-n_features = 50
-learning_rate = 2.45e-5
-weight_decay = 3.6e-5
+n_features = 57
+learning_rate = 6.3e-6
+weight_decay = 2.3e-6
 
 # Memory admin and balance
-min_classes_per_batch = 2
-batch_size_support = 15
-batch_size_query = 15
+min_classes_per_batch = 3
+batch_size_support = 18
+batch_size_query = 18
 min_class_appearances = 25  # Set a minimum number of appearances for each class
 num_batches_train = 100
 num_batches_eval = 50

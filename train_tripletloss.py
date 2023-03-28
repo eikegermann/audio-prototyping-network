@@ -13,6 +13,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import IPython.display as ipd
+from torch.nn import TripletMarginLoss
+
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from sklearn.model_selection import train_test_split
@@ -39,7 +41,8 @@ def train_pt_classifier(conf, train_dataset, test_dataset):
                                       n_features=conf.n_features)
 
     # Set up the loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
+    criterion = TripletMarginLoss(margin=1.0, p=2.0, reduction='mean')
+
     optimizer = optim.Adam(embedding_model.parameters(),
                           lr=conf.learning_rate,
                           weight_decay=conf.weight_decay)
@@ -110,8 +113,22 @@ def train_pt_classifier(conf, train_dataset, test_dataset):
             # Remap query labels to the new range
             query_labels_remap = torch.tensor([torch.where(batch_labels == label)[0].item() for label in query_labels], device=device)
 
-            # Calculate the loss and optimize the model
-            loss = criterion(class_probabilities, query_labels_remap)
+            closest_positive_indices = torch.argmax(class_probabilities, dim=1)  # Find the index of the largest probability (correct class prototype)
+            
+            # Find the index of the negative prototype (different from the positive prototype)
+            negative_indices = torch.argsort(class_probabilities, dim=1)  # Sort the indices based on the probabilities
+
+            # Get the second closest prototype (first is the positive)
+            negative_indices = negative_indices[:, 1]
+
+            anchor_embeddings = class_prototypes[query_labels_remap]  # Anchors are the correct class prototypes for each query
+            positive_embeddings = query_embeddings  # Positives are the query embeddings
+            negative_embeddings = class_prototypes[negative_indices]  # Negatives are the closest class prototypes of different classes
+
+            # Calculate the loss
+            loss = criterion(anchor_embeddings, positive_embeddings, negative_embeddings)
+
+            # Optimize the model
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -213,8 +230,18 @@ def train_pt_classifier(conf, train_dataset, test_dataset):
             # Remap query labels to the new range
             eval_query_labels_remap = torch.tensor([torch.where(batch_labels == label)[0].item() for label in eval_query_labels], device=device)
 
-            # Calculate the loss for the current episode
-            loss = criterion(class_probabilities, eval_query_labels_remap)
+            closest_positive_indices = torch.argmax(class_probabilities, dim=1)  # Find the index of the largest probability (correct class prototype)
+            
+            # Find the index of the negative prototype (different from the positive prototype)
+            negative_indices = torch.argmin(class_probabilities, dim=1)  # Find the index of the smallest probability (wrong class prototype)
+            negative_indices = negative_indices[torch.arange(distances.size(0)), (negative_indices != closest_positive_indices.unsqueeze(-1)).argmax(dim=1)]
+
+            anchor_embeddings = class_prototypes[query_labels_remap]  # Anchors are the correct class prototypes for each query
+            positive_embeddings = query_embeddings  # Positives are the query embeddings
+            negative_embeddings = class_prototypes[negative_indices]  # Negatives are the closest class prototypes of different classes
+
+            # Calculate the loss
+            loss = criterion(anchor_embeddings, positive_embeddings, negative_embeddings)
 
             # Calculate accuracy for the current episode
             predictions = torch.argmax(class_probabilities, dim=1)

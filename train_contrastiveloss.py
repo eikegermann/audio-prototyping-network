@@ -12,7 +12,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import IPython.display as ipd
+
+from torch.nn.functional import pairwise_distance
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from sklearn.model_selection import train_test_split
@@ -39,7 +40,8 @@ def train_pt_classifier(conf, train_dataset, test_dataset):
                                       n_features=conf.n_features)
 
     # Set up the loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
+    # criterion = nn.CrossEntropyLoss()
+    margin = 1.0
     optimizer = optim.Adam(embedding_model.parameters(),
                           lr=conf.learning_rate,
                           weight_decay=conf.weight_decay)
@@ -110,8 +112,23 @@ def train_pt_classifier(conf, train_dataset, test_dataset):
             # Remap query labels to the new range
             query_labels_remap = torch.tensor([torch.where(batch_labels == label)[0].item() for label in query_labels], device=device)
 
-            # Calculate the loss and optimize the model
-            loss = criterion(class_probabilities, query_labels_remap)
+            # Find the indices of the positive and negative examples
+            positive_indices = torch.argmin(distances, dim=1)
+            negative_indices = torch.argmin(distances + torch.eye(distances.size(0), distances.size(1)).to(device) * 1e9, dim=1)
+
+            # Get the embeddings for anchors, positives, and negatives
+            anchor_embeddings = class_prototypes[query_labels_remap]
+            positive_embeddings = query_embeddings
+            negative_embeddings = class_prototypes[negative_indices]
+
+            # Calculate the pairwise distances for positive and negative pairs
+            positive_distances = pairwise_distance(anchor_embeddings, positive_embeddings)
+            negative_distances = pairwise_distance(anchor_embeddings, negative_embeddings)
+
+            # Calculate the contrastive loss
+            loss = (positive_distances ** 2 + torch.clamp(margin - negative_distances, min=0) ** 2).mean() / 2
+
+            # Optimize the model
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
