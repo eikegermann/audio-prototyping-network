@@ -41,13 +41,13 @@ fixed_length = 128
 # Training data
 data_folder = 'data/firearm_samples/train/'
 fraction_for_train = 0.7
-num_train_episodes = 100
+num_train_episodes = 50
 support_ratio_train = 0.6
 
 # Test data
 eval_data_dir = 'data/firearm_samples/test/'
 fraction_for_eval = 1
-num_eval_episodes = 50
+num_eval_episodes = 25
 support_ratio_eval = 0.6
 
 num_runs = 10
@@ -61,7 +61,7 @@ fixed_length = n_frames
 display_interval = 10
 n_features = 57
 learning_rate = 6.3e-6
-weight_decay = 2.3e-6
+weight_decay = 1.5e-3
 
 # Memory admin and balance
 min_classes_per_batch = 3

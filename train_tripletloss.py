@@ -233,8 +233,10 @@ def train_pt_classifier(conf, train_dataset, test_dataset):
             closest_positive_indices = torch.argmax(class_probabilities, dim=1)  # Find the index of the largest probability (correct class prototype)
             
             # Find the index of the negative prototype (different from the positive prototype)
-            negative_indices = torch.argmin(class_probabilities, dim=1)  # Find the index of the smallest probability (wrong class prototype)
-            negative_indices = negative_indices[torch.arange(distances.size(0)), (negative_indices != closest_positive_indices.unsqueeze(-1)).argmax(dim=1)]
+            negative_indices = torch.argsort(class_probabilities, dim=1)  # Sort the indices based on the probabilities
+
+            # Get the second closest prototype (first is the positive)
+            negative_indices = negative_indices[:, 1]
 
             anchor_embeddings = class_prototypes[query_labels_remap]  # Anchors are the correct class prototypes for each query
             positive_embeddings = query_embeddings  # Positives are the query embeddings

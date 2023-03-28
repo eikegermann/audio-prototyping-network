@@ -47,7 +47,7 @@ def train_pt_classifier(conf, train_dataset, test_dataset):
                           weight_decay=conf.weight_decay)
     
     # # Create the CosineAnnealingLR scheduler
-    # T_max = 45  # You can choose an appropriate value for T_max
+    # T_max = 18  # You can choose an appropriate value for T_max
     # eta_min = 5e-7  # You can choose an appropriate value for eta_min
     # scheduler = CosineAnnealingLR(optimizer, T_max=T_max, eta_min=eta_min)
 
@@ -230,8 +230,21 @@ def train_pt_classifier(conf, train_dataset, test_dataset):
             # Remap query labels to the new range
             eval_query_labels_remap = torch.tensor([torch.where(batch_labels == label)[0].item() for label in eval_query_labels], device=device)
 
-            # Calculate the loss for the current episode
-            loss = criterion(class_probabilities, eval_query_labels_remap)
+            # Find the indices of the positive and negative examples
+            positive_indices = torch.argmin(distances, dim=1)
+            negative_indices = torch.argmin(distances + torch.eye(distances.size(0), distances.size(1)).to(device) * 1e9, dim=1)
+
+            # Get the embeddings for anchors, positives, and negatives
+            anchor_embeddings = class_prototypes[query_labels_remap]
+            positive_embeddings = query_embeddings
+            negative_embeddings = class_prototypes[negative_indices]
+
+            # Calculate the pairwise distances for positive and negative pairs
+            positive_distances = pairwise_distance(anchor_embeddings, positive_embeddings)
+            negative_distances = pairwise_distance(anchor_embeddings, negative_embeddings)
+
+            # Calculate the contrastive loss
+            loss = (positive_distances ** 2 + torch.clamp(margin - negative_distances, min=0) ** 2).mean() / 2
 
             # Calculate accuracy for the current episode
             predictions = torch.argmax(class_probabilities, dim=1)
