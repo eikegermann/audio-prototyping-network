@@ -124,7 +124,7 @@ def generate_custom_spectrogram(audio, filterbank, n_fft, fixed_length):
     return spec
 
 
-def generate_custom_spectrograms(data, filterbank, n_fft, fixed_length):
+def generate_custom_spectrograms(data, filterbank, sr, n_fft, fixed_length):
     spectrograms = []
     for audio in data:
         spec = generate_custom_spectrogram(audio, filterbank,
