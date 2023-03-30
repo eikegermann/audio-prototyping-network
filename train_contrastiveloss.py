@@ -268,10 +268,10 @@ def train_pt_classifier(conf, train_dataset, test_dataset):
         print(f"Previous best F1 score: {best_f1_score:.4f} - current F1 score: {f1:.4f}")
     if f_beta > best_f_beta_score:
         print(f"Previous best F-beta score: {best_f_beta_score:.4f} - current F_beta score: {f_beta:.4f}")
-    #     best_f1_score = f1
-    #     # best_model_weights = copy.deepcopy(embedding_model.state_dict())
-    #     # print("Saving new best checkpoint... \n")
-    #     # torch.save(best_model_weights, os.path.join(conf.checkpoint_dir, 'best_checkpoint.pth'))
+        # best_f1_score = f1
+        best_model_weights = copy.deepcopy(embedding_model.state_dict())
+        print("Saving new best checkpoint... \n")
+        torch.save(best_model_weights, os.path.join(conf.checkpoint_dir, 'best_checkpoint.pth'))
 
     # print(f"Evaluation complete. Best F1 score achieved is {best_f1_score:.2f}")
         

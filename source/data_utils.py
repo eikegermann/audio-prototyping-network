@@ -31,7 +31,7 @@ def load_audio_files(data_folder, sr, duration):
             data.append(audio)
             labels.append(class_label)
 
-    return data, labels
+    return data, labels, class_folders
 
 
 def pad_or_truncate(tensor, fixed_length):

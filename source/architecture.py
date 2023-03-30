@@ -28,9 +28,9 @@ class AudioClassifier(nn.Module):
         self.bn1 = nn.BatchNorm2d(16)
         self.conv1a = nn.Conv2d(in_channels=16, out_channels=24, kernel_size=3, stride=1, padding=1)
         self.bn1a = nn.BatchNorm2d(24)
-        self.conv2 = nn.Conv2d(in_channels=24, out_channels=32, kernel_size=5, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(in_channels=24, out_channels=32, kernel_size=5, stride=1, padding=2)
         self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=5, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=5, stride=1, padding=2)
         self.bn3 = nn.BatchNorm2d(64)
 
         self.pool = nn.MaxPool2d(2, 2)
